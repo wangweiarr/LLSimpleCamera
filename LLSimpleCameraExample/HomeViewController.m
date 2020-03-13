@@ -39,7 +39,7 @@
                                              videoEnabled:YES];
     
     // attach to a view controller
-    [self.camera attachToViewController:self withFrame:CGRectMake(0, 0, screenRect.size.width, screenRect.size.height)];
+    [self.camera attachToViewController:self withFrame:CGRectMake(0, [UIView safeAreaInsets].top, screenRect.size.width, screenRect.size.height)];
     
     // read: http://stackoverflow.com/questions/5427656/ios-uiimagepickercontroller-result-image-orientation-after-upload
     // you probably will want to set this to YES, if you are going view the image outside iOS.
@@ -98,7 +98,7 @@
     
     // snap button to capture image
     self.snapButton = [UIButton buttonWithType:UIButtonTypeCustom];
-    self.snapButton.frame = CGRectMake(0, 0, 70.0f, 70.0f);
+    self.snapButton.frame = CGRectMake(0, [UIView safeAreaInsets].top, 70.0f, 70.0f);
     self.snapButton.clipsToBounds = YES;
     self.snapButton.layer.cornerRadius = self.snapButton.width / 2.0f;
     self.snapButton.layer.borderColor = [UIColor whiteColor].CGColor;
@@ -111,7 +111,7 @@
     
     // button to toggle flash
     self.flashButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    self.flashButton.frame = CGRectMake(0, 0, 16.0f + 20.0f, 24.0f + 20.0f);
+    self.flashButton.frame = CGRectMake(0, [UIView safeAreaInsets].top, 16.0f + 20.0f, 24.0f + 20.0f);
     self.flashButton.tintColor = [UIColor whiteColor];
     [self.flashButton setImage:[UIImage imageNamed:@"camera-flash.png"] forState:UIControlStateNormal];
     self.flashButton.imageEdgeInsets = UIEdgeInsetsMake(10.0f, 10.0f, 10.0f, 10.0f);
@@ -121,7 +121,7 @@
     if([LLSimpleCamera isFrontCameraAvailable] && [LLSimpleCamera isRearCameraAvailable]) {
         // button to toggle camera positions
         self.switchButton = [UIButton buttonWithType:UIButtonTypeSystem];
-        self.switchButton.frame = CGRectMake(0, 0, 29.0f + 20.0f, 22.0f + 20.0f);
+        self.switchButton.frame = CGRectMake(0, [UIView safeAreaInsets].top, 29.0f + 20.0f, 22.0f + 20.0f);
         self.switchButton.tintColor = [UIColor whiteColor];
         [self.switchButton setImage:[UIImage imageNamed:@"camera-switch.png"] forState:UIControlStateNormal];
         self.switchButton.imageEdgeInsets = UIEdgeInsetsMake(10.0f, 10.0f, 10.0f, 10.0f);
@@ -198,19 +198,21 @@
         
     } else {
         if(!self.camera.isRecording) {
-            self.segmentedControl.hidden = YES;
-            self.flashButton.hidden = YES;
-            self.switchButton.hidden = YES;
-            
-            self.snapButton.layer.borderColor = [UIColor redColor].CGColor;
-            self.snapButton.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.5];
-            
             // start recording
             NSURL *outputURL = [[[self applicationDocumentsDirectory]
                                  URLByAppendingPathComponent:@"test1"] URLByAppendingPathExtension:@"mov"];
+            __weak typeof(self) weakSelf = self;
+            [self.camera setOnStartRecording:^(LLSimpleCamera *camera) {
+                weakSelf.segmentedControl.hidden = YES;
+                weakSelf.flashButton.hidden = YES;
+                weakSelf.switchButton.hidden = YES;
+                
+                weakSelf.snapButton.layer.borderColor = [UIColor redColor].CGColor;
+                weakSelf.snapButton.backgroundColor = [[UIColor redColor] colorWithAlphaComponent:0.5];
+            }];
             [self.camera startRecordingWithOutputUrl:outputURL didRecord:^(LLSimpleCamera *camera, NSURL *outputFileUrl, NSError *error) {
                 VideoViewController *vc = [[VideoViewController alloc] initWithVideoUrl:outputFileUrl];
-                [self.navigationController pushViewController:vc animated:YES];
+                [weakSelf.navigationController pushViewController:vc animated:YES];
             }];
             
         } else {
@@ -235,16 +237,16 @@
     self.camera.view.frame = self.view.contentBounds;
     
     self.snapButton.center = self.view.contentCenter;
-    self.snapButton.bottom = self.view.height - 15.0f;
+    self.snapButton.bottom = self.view.height - [UIView safeAreaInsets].bottom - 15.0f;
     
     self.flashButton.center = self.view.contentCenter;
-    self.flashButton.top = 5.0f;
+    self.flashButton.top = [UIView safeAreaInsets].top + 5.0f;
     
-    self.switchButton.top = 5.0f;
+    self.switchButton.top = [UIView safeAreaInsets].top + 5.0f;
     self.switchButton.right = self.view.width - 5.0f;
     
     self.segmentedControl.left = 12.0f;
-    self.segmentedControl.bottom = self.view.height - 35.0f;
+    self.segmentedControl.bottom = self.view.height - [UIView safeAreaInsets].bottom - 35.0f;
 }
 
 - (BOOL)prefersStatusBarHidden

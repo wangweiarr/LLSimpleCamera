@@ -39,6 +39,15 @@
 
 @implementation UIView (ViewUtils)
 
++ (UIEdgeInsets)safeAreaInsets
+{
+    if (@available(iOS 11.0, *)) {
+        return [UIApplication sharedApplication].delegate.window.safeAreaInsets;
+    } else {
+        return UIEdgeInsetsZero;
+    }
+}
+
 //nib loading
 
 + (id)instanceWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)bundleOrNil owner:(id)owner
@@ -413,7 +422,9 @@
 
 - (CGRect)contentBounds
 {
-    return CGRectMake(0.0f, 0.0f, self.boundsWidth, self.boundsHeight);
+//    return CGRectMake(0.0f, 0.0f, self.boundsWidth, self.boundsHeight);
+    //square
+    return CGRectMake(0.0f, (self.boundsHeight - self.boundsWidth) / 2.0, self.boundsWidth, self.boundsWidth);
 }
 
 - (CGPoint)contentCenter
@@ -475,5 +486,4 @@
         dispatch_after(time, dispatch_get_main_queue(), completion);
     }
 }
-
 @end

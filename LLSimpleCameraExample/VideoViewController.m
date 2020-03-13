@@ -7,6 +7,7 @@
 //
 
 #import "VideoViewController.h"
+#import "ViewUtils.h"
 @import AVFoundation;
 
 @interface VideoViewController ()
@@ -52,7 +53,7 @@
     // cancel button
     [self.view addSubview:self.cancelButton];
     [self.cancelButton addTarget:self action:@selector(cancelButtonPressed:) forControlEvents:UIControlEventTouchUpInside];
-    self.cancelButton.frame = CGRectMake(0, 0, 44, 44);
+    self.cancelButton.frame = CGRectMake(0, [UIView safeAreaInsets].top, 44, 44);
 }
 
 - (void)viewWillAppear:(BOOL)animated{
@@ -99,5 +100,4 @@
     [super didReceiveMemoryWarning];
     // Dispose of any resources that can be recreated.
 }
-
 @end

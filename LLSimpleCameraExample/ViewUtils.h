@@ -35,6 +35,8 @@
 
 @interface UIView (ViewUtils)
 
++ (UIEdgeInsets)safeAreaInsets;
+
 //nib loading
 
 + (id)instanceWithNibName:(NSString *)nibNameOrNil bundle:(NSBundle *)bundleOrNil owner:(id)owner;

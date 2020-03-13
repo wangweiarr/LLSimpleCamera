@@ -11,22 +11,36 @@
 #import "UIImage+FixOrientation.h"
 #import "LLSimpleCamera+Helper.h"
 
-@interface LLSimpleCamera () <AVCaptureFileOutputRecordingDelegate, UIGestureRecognizerDelegate>
+@interface LLSimpleCamera () <UIGestureRecognizerDelegate, AVCaptureAudioDataOutputSampleBufferDelegate, AVCaptureVideoDataOutputSampleBufferDelegate>
+@property (nonatomic ,strong) dispatch_queue_t recoredingQuene;
+@property (nonatomic, assign) BOOL isRecordingSessionStarted;
+
 @property (strong, nonatomic) UIView *preview;
 @property (strong, nonatomic) AVCaptureStillImageOutput *stillImageOutput;
+
+@property (strong, nonatomic) AVCaptureVideoPreviewLayer *captureVideoPreviewLayer;
 @property (strong, nonatomic) AVCaptureSession *session;
 @property (strong, nonatomic) AVCaptureDevice *videoCaptureDevice;
-@property (strong, nonatomic) AVCaptureDevice *audioCaptureDevice;
-@property (strong, nonatomic) AVCaptureDeviceInput *videoDeviceInput;
+//@property (strong, nonatomic) AVCaptureDevice *audioCaptureDevice;
+@property (nonatomic ,strong) AVCaptureDeviceInput *frontCamera;
+@property (nonatomic ,strong) AVCaptureDeviceInput *backCamera;
+@property (strong, nonatomic) AVCaptureDeviceInput *currentVideoInput;
 @property (strong, nonatomic) AVCaptureDeviceInput *audioDeviceInput;
-@property (strong, nonatomic) AVCaptureVideoPreviewLayer *captureVideoPreviewLayer;
+@property (nonatomic ,strong) AVCaptureVideoDataOutput *videoOutput;
+@property (nonatomic ,strong) AVCaptureAudioDataOutput *audioOutput;
+
+@property (nonatomic ,strong) AVAssetWriterInput *audioWriterInput;
+@property (nonatomic ,strong) AVAssetWriterInput *videoWriterInput;
+@property (nonatomic ,strong) AVAssetWriter *assetWriter;
+
 @property (strong, nonatomic) UITapGestureRecognizer *tapGesture;
 @property (strong, nonatomic) CALayer *focusBoxLayer;
 @property (strong, nonatomic) CAAnimation *focusBoxAnimation;
-@property (strong, nonatomic) AVCaptureMovieFileOutput *movieFileOutput;
+//@property (strong, nonatomic) AVCaptureMovieFileOutput *movieFileOutput;
 @property (strong, nonatomic) UIPinchGestureRecognizer *pinchGesture;
 @property (nonatomic, assign) CGFloat beginGestureScale;
 @property (nonatomic, assign) CGFloat effectiveScale;
+@property (nonatomic ,strong) NSURL *recordingURL;
 @property (nonatomic, copy) void (^didRecordCompletionBlock)(LLSimpleCamera *camera, NSURL *outputFileUrl, NSError *error);
 @end
 
@@ -194,8 +208,12 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
 - (void)initialize
 {
     if(!_session) {
-        _session = [[AVCaptureSession alloc] init];
-        _session.sessionPreset = self.cameraQuality;
+        self.whiteBalanceMode = AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance;
+        
+        [self initializeCaptureDevice];
+        [self initializeDeviceInput];
+        [self initializeDeviceOutput];
+        [self initializeSession];
         
         // preview layer
         CGRect bounds = self.preview.layer.bounds;
@@ -203,77 +221,8 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
         _captureVideoPreviewLayer.videoGravity = AVLayerVideoGravityResizeAspectFill;
         _captureVideoPreviewLayer.bounds = bounds;
         _captureVideoPreviewLayer.position = CGPointMake(CGRectGetMidX(bounds), CGRectGetMidY(bounds));
+        _captureVideoPreviewLayer.connection.videoOrientation = [self orientationForConnection];
         [self.preview.layer addSublayer:_captureVideoPreviewLayer];
-        
-        AVCaptureDevicePosition devicePosition;
-        switch (self.position) {
-            case LLCameraPositionRear:
-                if([self.class isRearCameraAvailable]) {
-                    devicePosition = AVCaptureDevicePositionBack;
-                } else {
-                    devicePosition = AVCaptureDevicePositionFront;
-                    _position = LLCameraPositionFront;
-                }
-                break;
-            case LLCameraPositionFront:
-                if([self.class isFrontCameraAvailable]) {
-                    devicePosition = AVCaptureDevicePositionFront;
-                } else {
-                    devicePosition = AVCaptureDevicePositionBack;
-                    _position = LLCameraPositionRear;
-                }
-                break;
-            default:
-                devicePosition = AVCaptureDevicePositionUnspecified;
-                break;
-        }
-        
-        if(devicePosition == AVCaptureDevicePositionUnspecified) {
-            self.videoCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
-        } else {
-            self.videoCaptureDevice = [self cameraWithPosition:devicePosition];
-        }
-        
-        NSError *error = nil;
-        _videoDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:_videoCaptureDevice error:&error];
-        
-        if (!_videoDeviceInput) {
-            [self passError:error];
-            return;
-        }
-        
-        if([self.session canAddInput:_videoDeviceInput]) {
-            [self.session  addInput:_videoDeviceInput];
-            self.captureVideoPreviewLayer.connection.videoOrientation = [self orientationForConnection];
-        }
-        
-        // add audio if video is enabled
-        if(self.videoEnabled) {
-            _audioCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
-            _audioDeviceInput = [AVCaptureDeviceInput deviceInputWithDevice:_audioCaptureDevice error:&error];
-            if (!_audioDeviceInput) {
-                [self passError:error];
-            }
-        
-            if([self.session canAddInput:_audioDeviceInput]) {
-                [self.session addInput:_audioDeviceInput];
-            }
-        
-            _movieFileOutput = [[AVCaptureMovieFileOutput alloc] init];
-            [_movieFileOutput setMovieFragmentInterval:kCMTimeInvalid];
-            if([self.session canAddOutput:_movieFileOutput]) {
-                [self.session addOutput:_movieFileOutput];
-            }
-        }
-        
-        // continiously adjust white balance
-        self.whiteBalanceMode = AVCaptureWhiteBalanceModeContinuousAutoWhiteBalance;
-        
-        // image output
-        self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
-        NSDictionary *outputSettings = [[NSDictionary alloc] initWithObjectsAndKeys: AVVideoCodecJPEG, AVVideoCodecKey, nil];
-        [self.stillImageOutput setOutputSettings:outputSettings];
-        [self.session addOutput:self.stillImageOutput];
     }
     
     //if we had disabled the connection on capture, re-enable it
@@ -290,6 +239,191 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
     self.session = nil;
 }
 
+- (void)initializeWriterInput
+{
+    if (!self.recordingURL) {
+        return;
+    }
+    
+    if (!self.recoredingQuene) {
+        self.recoredingQuene = dispatch_queue_create("LLSimpleCamera.captureQueue", DISPATCH_QUEUE_SERIAL);
+    }
+    
+    NSDictionary *audioSetting = @{AVFormatIDKey:@(kAudioFormatAppleIMA4),
+                          AVNumberOfChannelsKey:@(1),
+                          AVSampleRateKey:@(32000.0)};
+    
+    NSDictionary *videoSetting = @{AVVideoCodecKey:AVVideoCodecH264,
+                          AVVideoWidthKey:@(CGRectGetWidth(self.view.frame)),
+                          AVVideoHeightKey:@(CGRectGetHeight(self.view.frame)),
+                          AVVideoScalingModeKey:AVVideoScalingModeResizeAspectFill};
+    
+    //writer input
+    self.audioWriterInput = [[AVAssetWriterInput alloc] initWithMediaType:AVMediaTypeAudio outputSettings:audioSetting];
+    self.videoWriterInput = [[AVAssetWriterInput alloc] initWithMediaType:AVMediaTypeVideo outputSettings:videoSetting];
+    
+    self.videoWriterInput.expectsMediaDataInRealTime = YES;
+    self.audioWriterInput.expectsMediaDataInRealTime = YES;
+    
+    //asset writer
+    self.assetWriter = [[AVAssetWriter alloc] initWithURL:self.recordingURL fileType:AVFileTypeQuickTimeMovie error:nil];
+    
+    if ([self.assetWriter canAddInput:self.videoWriterInput]) {
+        [self.assetWriter addInput:self.videoWriterInput];
+    }
+    
+    if ([self.assetWriter canAddInput:self.audioWriterInput]) {
+        [self.assetWriter addInput:self.audioWriterInput];
+    }
+}
+
+- (void)initializeCaptureDevice
+{
+    AVCaptureDevicePosition devicePosition;
+    switch (self.position) {
+        case LLCameraPositionRear:
+            if([self.class isRearCameraAvailable]) {
+                devicePosition = AVCaptureDevicePositionBack;
+            } else {
+                devicePosition = AVCaptureDevicePositionFront;
+                _position = LLCameraPositionFront;
+            }
+            break;
+        case LLCameraPositionFront:
+            if([self.class isFrontCameraAvailable]) {
+                devicePosition = AVCaptureDevicePositionFront;
+            } else {
+                devicePosition = AVCaptureDevicePositionBack;
+                _position = LLCameraPositionRear;
+            }
+            break;
+        default:
+            devicePosition = AVCaptureDevicePositionUnspecified;
+            break;
+    }
+    
+    if (devicePosition != AVCaptureDevicePositionUnspecified) {
+        NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+        for (AVCaptureDevice *device in devices) {
+            if (device.position == devicePosition) {
+                self.videoCaptureDevice = device;
+                break;
+            }
+        }
+    }
+    if (!self.videoCaptureDevice) {
+        self.videoCaptureDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeVideo];
+    }
+}
+
+- (void)initializeDeviceOutput
+{
+    self.stillImageOutput = [[AVCaptureStillImageOutput alloc] init];
+    [self.stillImageOutput setOutputSettings:@{AVVideoCodecKey:AVVideoCodecJPEG}];
+    
+    self.videoOutput = [[AVCaptureVideoDataOutput alloc] init];
+    self.audioOutput = [[AVCaptureAudioDataOutput alloc] init];
+}
+
+- (void)initializeDeviceInput
+{
+    NSError *error = nil;
+    //camera
+    NSArray *cameraDevices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
+    for (AVCaptureDevice *camera in cameraDevices) {
+        if (camera.position == AVCaptureDevicePositionFront) {
+            self.frontCamera = [[AVCaptureDeviceInput alloc] initWithDevice:camera error:nil];
+        } else {
+            self.backCamera = [[AVCaptureDeviceInput alloc] initWithDevice:camera error:nil];
+        }
+    }
+    
+    //audio
+    AVCaptureDevice *audioDevice = [AVCaptureDevice defaultDeviceWithMediaType:AVMediaTypeAudio];
+    self.audioDeviceInput = [[AVCaptureDeviceInput alloc] initWithDevice:audioDevice error:&error];
+    [self passError:error];
+    
+    //default camera
+    self.currentVideoInput = self.togglePosition == LLCameraPositionRear ? self.backCamera : self.frontCamera;
+}
+
+- (void)initializeSession
+{
+    self.session = [[AVCaptureSession alloc] init];
+    
+    [self.session beginConfiguration];
+    
+    self.session.sessionPreset = self.cameraQuality;
+    
+    //input
+    if ([self.session canAddInput:self.currentVideoInput]) {
+        [self.session addInput:self.currentVideoInput];
+    }
+    if ([self.session canAddInput:self.audioDeviceInput]) {
+        [self.session addInput:self.audioDeviceInput];
+    }
+    
+    //output
+    if ([self.session canAddOutput:self.videoOutput]) {
+        [self.session addOutput:self.videoOutput];
+    }
+    if ([self.session canAddOutput:self.audioOutput]) {
+        [self.session addOutput:self.audioOutput];
+    }
+    if ([self.session canAddOutput:self.audioOutput]) {
+        [self.session addOutput:self.audioOutput];
+    }
+    if ([self.session canAddOutput:self.stillImageOutput]) {
+        [self.session addOutput:self.stillImageOutput];
+    }
+    
+    [self updateSesionCamera];
+    
+    [self.session commitConfiguration];
+}
+
+- (void)updateSesionCamera
+{
+    for (AVCaptureConnection *videoConnection in self.videoOutput.connections) {
+        if (videoConnection.isVideoStabilizationSupported) {
+            //if turn on, video will missing last frames
+            //see about https://stackoverflow.com/questions/56594582/avassetwriter-missing-last-frames
+            videoConnection.preferredVideoStabilizationMode = AVCaptureVideoStabilizationModeOff;
+        }
+        if (videoConnection.isVideoOrientationSupported) {
+            videoConnection.videoOrientation = AVCaptureVideoOrientationPortrait;
+        }
+        
+        switch (self.mirror) {
+            case LLCameraMirrorOff: {
+                if ([videoConnection isVideoMirroringSupported]) {
+                    [videoConnection setVideoMirrored:NO];
+                }
+                break;
+            }
+            case LLCameraMirrorOn: {
+                if ([videoConnection isVideoMirroringSupported]) {
+                    [videoConnection setVideoMirrored:YES];
+                }
+                break;
+            }
+            case LLCameraMirrorAuto: {
+                BOOL shouldMirror = (_position == LLCameraPositionFront);
+                if ([videoConnection isVideoMirroringSupported]) {
+                    [videoConnection setVideoMirrored:shouldMirror];
+                }
+                break;
+            }
+        }
+    }
+}
+
+- (void)clearTempFileIfNeeded
+{
+    if ([[NSFileManager defaultManager] fileExistsAtPath:self.recordingURL.path]) {
+        [[NSFileManager defaultManager] removeItemAtURL:self.recordingURL error:nil];
+    }
+}
 
 #pragma mark - Image Capture
 
@@ -369,8 +503,9 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
 
 - (void)startRecordingWithOutputUrl:(NSURL *)url didRecord:(void (^)(LLSimpleCamera *camera, NSURL *outputFileUrl, NSError *error))completionBlock
 {
+    
     // check if video is enabled
-    if(!self.videoEnabled) {
+    if (!self.videoEnabled) {
         NSError *error = [NSError errorWithDomain:LLSimpleCameraErrorDomain
                                              code:LLSimpleCameraErrorCodeVideoNotEnabled
                                          userInfo:nil];
@@ -378,25 +513,20 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
         return;
     }
     
-    if(self.flash == LLCameraFlashOn) {
+    if (self.flash == LLCameraFlashOn) {
         [self enableTorch:YES];
     }
     
-    // set video orientation
-    for(AVCaptureConnection *connection in [self.movieFileOutput connections]) {
-        for (AVCaptureInputPort *port in [connection inputPorts]) {
-            // get only the video media types
-            if ([[port mediaType] isEqual:AVMediaTypeVideo]) {
-                if ([connection isVideoOrientationSupported]) {
-                    [connection setVideoOrientation:[self orientationForConnection]];
-                }
-            }
-        }
-    }
-    
+    self.recording = YES;
+    self.recordingURL = url;
     self.didRecordCompletionBlock = completionBlock;
+    [self clearTempFileIfNeeded];
+    [self initializeWriterInput];
+    [self.assetWriter startWriting];
+    [self.videoOutput setSampleBufferDelegate:self queue:self.recoredingQuene];
+    [self.audioOutput setSampleBufferDelegate:self queue:self.recoredingQuene];
     
-    [self.movieFileOutput startRecordingToOutputFileURL:url recordingDelegate:self];
+    if (self.onStartRecording) self.onStartRecording(self);
 }
 
 - (void)stopRecording
@@ -405,22 +535,52 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
         return;
     }
     
-    [self.movieFileOutput stopRecording];
-}
-
-- (void)captureOutput:(AVCaptureFileOutput *)captureOutput didStartRecordingToOutputFileAtURL:(NSURL *)fileURL fromConnections:(NSArray *)connections
-{
-    self.recording = YES;
-    if(self.onStartRecording) self.onStartRecording(self);
-}
-
-- (void)captureOutput:(AVCaptureFileOutput *)captureOutput didFinishRecordingToOutputFileAtURL:(NSURL *)outputFileURL fromConnections:(NSArray *)connections error:(NSError *)error
-{
-    self.recording = NO;
-    [self enableTorch:NO];
+    [self.videoWriterInput markAsFinished];
+    [self.audioWriterInput markAsFinished];
     
-    if(self.didRecordCompletionBlock) {
-        self.didRecordCompletionBlock(self, outputFileURL, error);
+    __weak typeof(self) weakSelf = self;
+    [self.assetWriter finishWritingWithCompletionHandler:^{
+        [self.videoOutput setSampleBufferDelegate:nil queue:nil];
+        [self.audioOutput setSampleBufferDelegate:nil queue:nil];
+        
+        weakSelf.recording = NO;
+        weakSelf.isRecordingSessionStarted = NO;
+        [weakSelf enableTorch:NO];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (weakSelf.didRecordCompletionBlock) {
+                weakSelf.didRecordCompletionBlock(weakSelf, weakSelf.recordingURL, weakSelf.assetWriter.error);
+            }
+        });
+    }];
+}
+
+#pragma mark - AVCaptureAudioDataOutputSampleBufferDelegate & AVCaptureVideoDataOutputSampleBufferDelegate
+
+- (void)captureOutput:(AVCaptureOutput *)output didOutputSampleBuffer:(CMSampleBufferRef)sampleBuffer fromConnection:(AVCaptureConnection *)connection
+{
+    if (self.isRecordingSessionStarted == NO) {
+        CMTime PTS = CMSampleBufferGetPresentationTimeStamp(sampleBuffer);
+        [self.assetWriter startSessionAtSourceTime:PTS];
+        self.isRecordingSessionStarted = YES;
+    }
+    
+    [self appendSampleBuffer:sampleBuffer];
+}
+
+- (void)appendSampleBuffer:(CMSampleBufferRef)sampleBuffer
+{
+    CMMediaType mediaType = CMFormatDescriptionGetMediaType(CMSampleBufferGetFormatDescription(sampleBuffer));
+    switch (mediaType) {
+        case kCMMediaType_Audio:
+            if (self.audioWriterInput.isReadyForMoreMediaData) {
+                [self.audioWriterInput appendSampleBuffer:sampleBuffer];
+            }
+            break;
+        default:
+            if (self.videoWriterInput.isReadyForMoreMediaData) {
+                [self.videoWriterInput appendSampleBuffer:sampleBuffer];
+            }
+            break;
     }
 }
 
@@ -443,7 +603,7 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
 
 - (void)passError:(NSError *)error
 {
-    if(self.onError) {
+    if (error && self.onError) {
         __weak typeof(self) weakSelf = self;
         self.onError(weakSelf, error);
     }
@@ -553,47 +713,10 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
     if(!self.session) {
         return;
     }
-
-    AVCaptureConnection *videoConnection = [_movieFileOutput connectionWithMediaType:AVMediaTypeVideo];
-    AVCaptureConnection *pictureConnection = [_stillImageOutput connectionWithMediaType:AVMediaTypeVideo];
-
-    switch (mirror) {
-        case LLCameraMirrorOff: {
-            if ([videoConnection isVideoMirroringSupported]) {
-                [videoConnection setVideoMirrored:NO];
-            }
-            
-            if ([pictureConnection isVideoMirroringSupported]) {
-                [pictureConnection setVideoMirrored:NO];
-            }
-            break;
-        }
-
-        case LLCameraMirrorOn: {
-            if ([videoConnection isVideoMirroringSupported]) {
-                [videoConnection setVideoMirrored:YES];
-            }
-            
-            if ([pictureConnection isVideoMirroringSupported]) {
-                [pictureConnection setVideoMirrored:YES];
-            }
-            break;
-        }
-
-        case LLCameraMirrorAuto: {
-            BOOL shouldMirror = (_position == LLCameraPositionFront);
-            if ([videoConnection isVideoMirroringSupported]) {
-                [videoConnection setVideoMirrored:shouldMirror];
-            }
-            
-            if ([pictureConnection isVideoMirroringSupported]) {
-                [pictureConnection setVideoMirrored:shouldMirror];
-            }
-            break;
-        }
-    }
-
-    return;
+    
+    [self.session beginConfiguration];
+    [self updateSesionCamera];
+    [self.session commitConfiguration];
 }
 
 - (LLCameraPosition)togglePosition
@@ -625,52 +748,21 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
         return;
     }
     
-    [self.session beginConfiguration];
-    
-    // remove existing input
-    [self.session removeInput:self.videoDeviceInput];
-    
-    // get new input
-    AVCaptureDevice *device = nil;
-    if(self.videoDeviceInput.device.position == AVCaptureDevicePositionBack) {
-        device = [self cameraWithPosition:AVCaptureDevicePositionFront];
-    } else {
-        device = [self cameraWithPosition:AVCaptureDevicePositionBack];
-    }
-    
-    if(!device) {
-        return;
-    }
-    
-    // add input to session
-    NSError *error = nil;
-    AVCaptureDeviceInput *videoInput = [[AVCaptureDeviceInput alloc] initWithDevice:device error:&error];
-    if(error) {
-        [self passError:error];
-        [self.session commitConfiguration];
-        return;
-    }
-    
     _position = cameraPosition;
     
-    [self.session addInput:videoInput];
-    [self.session commitConfiguration];
-    
-    self.videoCaptureDevice = device;
-    self.videoDeviceInput = videoInput;
-
-    [self setMirror:_mirror];
-}
-
-
-// Find a camera with the specified AVCaptureDevicePosition, returning nil if one is not found
-- (AVCaptureDevice *)cameraWithPosition:(AVCaptureDevicePosition) position
-{
-    NSArray *devices = [AVCaptureDevice devicesWithMediaType:AVMediaTypeVideo];
-    for (AVCaptureDevice *device in devices) {
-        if (device.position == position) return device;
+    [self.session beginConfiguration];
+    // remove existing input
+    [self.session removeInput:self.currentVideoInput];
+    // get new input
+    if(self.currentVideoInput.device.position == AVCaptureDevicePositionBack) {
+        self.currentVideoInput = self.frontCamera;
+    } else {
+        self.currentVideoInput = self.backCamera;
     }
-    return nil;
+    // add input to session
+    [self.session addInput:self.currentVideoInput];
+    [self updateSesionCamera];
+    [self.session commitConfiguration];
 }
 
 #pragma mark - Focus
@@ -684,7 +776,7 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
     CGPoint touchedPoint = [gestureRecognizer locationInView:self.preview];
     CGPoint pointOfInterest = [self convertToPointOfInterestFromViewCoordinates:touchedPoint
                                                                    previewLayer:self.captureVideoPreviewLayer
-                                                                          ports:self.videoDeviceInput.ports];
+                                                                          ports:self.currentVideoInput.ports];
     [self focusAtPoint:pointOfInterest];
     [self showFocusBox:touchedPoint];
 }
@@ -815,14 +907,12 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
     return videoOrientation;
 }
 
-- (void)willRotateToInterfaceOrientation:(UIInterfaceOrientation)toInterfaceOrientation duration:(NSTimeInterval)duration
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator
 {
-    [super willRotateToInterfaceOrientation:toInterfaceOrientation duration:duration];
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
     
-    // layout subviews is not called when rotating from landscape right/left to left/right
-    if (UIInterfaceOrientationIsLandscape(self.interfaceOrientation) && UIInterfaceOrientationIsLandscape(toInterfaceOrientation)) {
-        [self.view setNeedsLayout];
-    }
+    // layout subviews is not called when rotating from landscape right/left to left/right ?
+    [self.view setNeedsLayout];
 }
 
 - (void)didReceiveMemoryWarning

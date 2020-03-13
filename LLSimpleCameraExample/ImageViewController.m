@@ -35,7 +35,7 @@
     
     CGRect screenRect = [[UIScreen mainScreen] bounds];
     
-    self.imageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, 0, screenRect.size.width, screenRect.size.height)];
+    self.imageView = [[UIImageView alloc] initWithFrame:CGRectMake(0, [UIView safeAreaInsets].top, screenRect.size.width, screenRect.size.height)];
     self.imageView.contentMode = UIViewContentModeScaleAspectFit;
     self.imageView.backgroundColor = [UIColor clearColor];
     self.imageView.image = self.image;
@@ -43,7 +43,7 @@
     
     NSString *info = [NSString stringWithFormat:@"Size: %@  -  Orientation: %ld", NSStringFromCGSize(self.image.size), (long)self.image.imageOrientation];
     
-    self.infoLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, 0, 100, 20)];
+    self.infoLabel = [[UILabel alloc] initWithFrame:CGRectMake(0, [UIView safeAreaInsets].top, 100, 20)];
     self.infoLabel.backgroundColor = [[UIColor darkGrayColor] colorWithAlphaComponent:0.7];
     self.infoLabel.textColor = [UIColor whiteColor];
     self.infoLabel.font = [UIFont fontWithName:@"AvenirNext-Regular" size:13];
