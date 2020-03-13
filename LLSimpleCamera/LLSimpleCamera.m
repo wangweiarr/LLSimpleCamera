@@ -531,7 +531,10 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
 
 - (void)stopRecording
 {
-    if(!self.videoEnabled) {
+    if (!self.videoEnabled) {
+        return;
+    }
+    if (!self.isRecordingSessionStarted) {
         return;
     }
     
