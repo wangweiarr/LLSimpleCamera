@@ -236,7 +236,6 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
 - (void)stop
 {
     [self.session stopRunning];
-    self.session = nil;
 }
 
 - (void)initializeWriterInput
@@ -254,8 +253,8 @@ NSString *const LLSimpleCameraErrorDomain = @"LLSimpleCameraErrorDomain";
                           AVSampleRateKey:@(32000.0)};
     
     NSDictionary *videoSetting = @{AVVideoCodecKey:AVVideoCodecH264,
-                          AVVideoWidthKey:@(CGRectGetWidth(self.view.frame)),
-                          AVVideoHeightKey:@(CGRectGetHeight(self.view.frame)),
+                          AVVideoWidthKey:@((NSInteger)(ceil(CGRectGetWidth(self.view.frame) / 16.0)) * 16),
+                          AVVideoHeightKey:@((NSInteger)(ceil(CGRectGetHeight(self.view.frame) / 16.0)) * 16),
                           AVVideoScalingModeKey:AVVideoScalingModeResizeAspectFill};
     
     //writer input
